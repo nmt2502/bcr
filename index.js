@@ -110,60 +110,71 @@ app.get("/api/ban/:id", async (req, res) => {
 
 /* ===== API ALL (DÙNG LẠI /api/ban/:id) ===== */
 app.get("/api/ban/all", async (req, res) => {
-  const result = [];
+  try {
+    const result = [];
 
-  for (let i = 1; i <= 16; i++) {
-    const id = `C${String(i).padStart(2, "0")}`;
-    try {
-      const r = await axios.get(`http://localhost:${PORT}/api/ban/${id}`);
-      result.push(r.data);
-    } catch {}
+    for (let i = 1; i <= 16; i++) {
+      const id = `C${String(i).padStart(2, "0")}`;
+      const r = await axios.get(
+        `http://localhost:${PORT}/api/ban/${id}`
+      );
+
+      if (r.data && r.data.cau) {
+        result.push({
+          ban: id,
+          cau: r.data.cau
+        });
+      } else {
+        result.push({
+          ban: id,
+          trang_thai: "Không có cầu"
+        });
+      }
+    }
+
+    res.json({
+      total: 16,
+      data: result
+    });
+
+  } catch (e) {
+    res.status(500).json({ error: "ALL error" });
   }
-
-  res.json({
-    total: result.length,
-    data: result
-  });
 });
 
 /* ===== API AUTO (CHECK BÀN ĐẸP TỪ /api/ban/:id) ===== */
 app.get("/api/ban/auto", async (req, res) => {
   try {
-    // giữ bàn cũ
-    if (CURRENT_BAN) {
-      const r = await axios.get(`http://localhost:${PORT}/api/ban/${CURRENT_BAN}`);
-      const cau = r.data.cau;
-      if (cau && parseInt(cau.do_tin_cay) >= 70) {
-        return res.json({
-          ban: CURRENT_BAN,
-          cau: { ...cau, ghi_chu: "Giữ bàn đẹp" }
-        });
-      }
-      CURRENT_BAN = null;
-    }
+    const r = await axios.get(
+      `http://localhost:${PORT}/api/ban/all`
+    );
 
-    // tìm bàn mới
+    const data = r.data.data;
+
     let best = null;
 
-    for (let i = 1; i <= 16; i++) {
-      const id = `C${String(i).padStart(2, "0")}`;
-      const r = await axios.get(`http://localhost:${PORT}/api/ban/${id}`);
-      const cau = r.data.cau;
-      if (!cau) continue;
+    for (const item of data) {
+      if (!item.cau) continue;
 
-      const p = parseInt(cau.do_tin_cay);
-      if (!best || p > best.p) best = { id, cau, p };
+      const p = parseInt(item.cau.do_tin_cay);
+      if (!best || p > best.p) {
+        best = { ban: item.ban, cau: item.cau, p };
+      }
     }
 
-    if (!best) return res.json({ error: "Không có bàn đẹp" });
+    if (!best) {
+      return res.json({ error: "Không có bàn đẹp" });
+    }
 
-    CURRENT_BAN = best.id;
     res.json({
-      ban: best.id,
-      cau: { ...best.cau, ghi_chu: "Chọn bàn đẹp nhất" }
+      ban: best.ban,
+      cau: {
+        ...best.cau,
+        ghi_chu: "Bàn đẹp nhất từ ALL"
+      }
     });
 
-  } catch {
+  } catch (e) {
     res.status(500).json({ error: "AUTO error" });
   }
 });
