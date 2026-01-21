@@ -111,7 +111,7 @@ app.get("/api/ban/:id", async (req, res) => {
 // ================== API AUTO (KHÔNG RESET) ==================
 app.get("/api/ban/auto", async (req, res) => {
   try {
-    const resApi = await axios.get("https://bcrapj-sgpl.onrender.com/sexy/all");
+    const resApi = await axios.get("https://bcrvip.onrender.com/api/ban/all");
     const data = resApi.data.data || resApi.data;
 
     if (CURRENT_BAN) {
