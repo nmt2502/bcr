@@ -1,3 +1,4 @@
+
 const express = require("express");
 const axios = require("axios");
 
@@ -170,57 +171,4 @@ app.get("/api/ban/auto", async (req, res) => {
 /* ================== START ================== */
 app.listen(PORT, () => {
   console.log("API running on port", PORT);
-});  res.json({ ban: ban.ban, cau: { ...a, du_doan: a.du_doan_tiep } });
 });
-
-/* ===== AUTO BÀN ĐẸP (KHÔNG RESET) ===== */
-app.get("/api/ban/auto", async (_, res) => {
-  const { data } = await axios.get(SOURCE_API);
-
-  // Giữ bàn cũ
-  if (CURRENT_BAN) {
-    const b = data.find(x => x.ban === CURRENT_BAN);
-    if (b) {
-      const a = analyzeKetQua(b.ket_qua, b.du_doan);
-      if (a && a.do_tin_cay >= 70) {
-        return res.json({ ban: b.ban, cau: a, ghi_chu: "Giữ bàn cũ" });
-      }
-    }
-  }
-
-  // Tìm bàn mới
-  let best = null;
-  for (let i = 1; i <= 16; i++) {
-    const id = `C${String(i).padStart(2, "0")}`;
-    const b = data.find(x => x.ban === id);
-    if (!b) continue;
-    const a = analyzeKetQua(b.ket_qua, b.du_doan);
-    if (a && (!best || a.do_tin_cay > best.a.do_tin_cay)) {
-      best = { b, a };
-    }
-  }
-
-  if (!best) return res.json({ status: "NO_BAN_DEP" });
-
-  CURRENT_BAN = best.b.ban;
-  res.json({ ban: best.b.ban, cau: best.a, ghi_chu: "Chọn bàn mới" });
-});
-
-/* ===== ALL ===== */
-app.get("/api/ban/all", async (_, res) => {
-  const { data } = await axios.get(SOURCE_API);
-  const out = [];
-
-  for (let i = 1; i <= 16; i++) {
-    const id = `C${String(i).padStart(2, "0")}`;
-    const b = data.find(x => x.ban === id);
-    if (!b) continue;
-    const a = analyzeKetQua(b.ket_qua, b.du_doan);
-    out.push(a ? { ban: id, du_doan: a.du_doan_tiep, tin_cay: a.do_tin_cay + "%" }
-               : { ban: id, trang_thai: "Không cầu" });
-  }
-  res.json({ total: out.length, data: out });
-});
-
-/* ================== START ================== */
-app.listen(PORT, () => console.log("RUNNING:", PORT));
