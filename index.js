@@ -4,8 +4,9 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-/* ================== GLOBAL STATE ================== */
+/* ================== GLOBAL ================== */
 let CURRENT_BAN = null;
+const SOURCE_API = "https://bcrapj-sgpl.onrender.com/sexy/all";
 
 /* ================== THUẬT TOÁN ================== */
 const ALGORITHMS = {
@@ -22,47 +23,41 @@ const ALGORITHMS = {
 };
 
 /* ================== UTIL ================== */
-function cleanKetQua(kq = "") {
-  return kq.replace(/T/g, "");
-}
+const cleanKetQua = kq => kq.replace(/T/g, "");
 
-function getMucDoTinCay(p) {
-  if (p >= 90) return "Rất Mạnh";
-  if (p >= 70) return "Trung Bình";
-  if (p >= 50) return "Yếu";
-  return "Không Khuyến Nghị";
-}
+const getMucDoTinCay = p =>
+  p >= 90 ? "Rất Mạnh" :
+  p >= 70 ? "Trung Bình" :
+  p >= 50 ? "Yếu" : "Không Khuyến Nghị";
 
 function compareSoft(ket_qua, pattern) {
   const clean = cleanKetQua(ket_qua);
   const recent = clean.slice(-pattern.length);
-
   let score = 0, total = 0;
   for (let i = 0; i < recent.length; i++) {
     const w = i + 1;
     total += w;
     if (recent[i] === pattern[i]) score += w;
   }
-  return total === 0 ? 0 : Math.round((score / total) * 100);
+  return total ? Math.round(score / total * 100) : 0;
 }
 
-function duDoanTiep(pattern, ket_qua, du_doan_cu) {
-  if (ket_qua.slice(-1) === "T") return du_doan_cu;
-  const clean = cleanKetQua(ket_qua);
-  return pattern[clean.length % pattern.length];
+function duDoanTiep(pattern, ket_qua, cu) {
+  if (ket_qua.slice(-1) === "T") return cu;
+  return pattern[cleanKetQua(ket_qua).length % pattern.length];
 }
 
-function analyzeKetQua(ket_qua, du_doan_cu) {
+function analyzeKetQua(kq, cu) {
   let best = null;
-  for (const [loai, patterns] of Object.entries(ALGORITHMS)) {
-    for (const p of patterns) {
-      const percent = compareSoft(ket_qua, p);
-      if (percent >= 70 && (!best || percent > best.do_tin_cay)) {
+  for (const [loai, arr] of Object.entries(ALGORITHMS)) {
+    for (const p of arr) {
+      const pt = compareSoft(kq, p);
+      if (pt >= 70 && (!best || pt > best.do_tin_cay)) {
         best = {
           loai_cau: loai,
           mau: p,
-          do_tin_cay: percent,
-          du_doan_tiep: duDoanTiep(p, ket_qua, du_doan_cu)
+          do_tin_cay: pt,
+          du_doan_tiep: duDoanTiep(p, kq, cu)
         };
       }
     }
@@ -72,134 +67,68 @@ function analyzeKetQua(ket_qua, du_doan_cu) {
 
 /* ================== API ================== */
 
-app.get("/", (req, res) => {
-  res.send("API SOI CẦU OK");
-});
+app.get("/", (_, res) => res.send("API SOI CẦU OK"));
 
-// ================== API TỪNG BÀN ==================
+/* ===== TỪNG BÀN ===== */
 app.get("/api/ban/:id", async (req, res) => {
-  try {
-    const banId = req.params.id.toUpperCase();
+  const { data } = await axios.get(SOURCE_API);
+  const ban = data.find(b => b.ban === req.params.id.toUpperCase());
+  if (!ban) return res.json({ error: "Không có bàn" });
 
-    const resApi = await axios.get("https://bcrapj-sgpl.onrender.com/sexy/all");
-    const data = resApi.data.data || resApi.data;
+  const a = analyzeKetQua(ban.ket_qua, ban.du_doan);
+  if (!a) return res.json({ ban: ban.ban, trang_thai: "Không có cầu" });
 
-    const banData = data.find(b => b.ban === banId);
-    if (!banData) return res.json({ error: "Không có bàn" });
-
-    const analysis = analyzeKetQua(banData.ket_qua, banData.du_doan);
-    if (!analysis) return res.json({ ban: banId, trang_thai: "Không có cầu theo" });
-
-    res.json({
-      ban: banData.ban,
-      cau: {
-        Cầu: banData.cau,
-        ket_qua: banData.ket_qua,
-        du_doan: analysis.du_doan_tiep,
-        loai_cau: analysis.loai_cau,
-        mau_cau: analysis.mau,
-        do_tin_cay: analysis.do_tin_cay + "%",
-        muc_do_tin_cay: getMucDoTinCay(analysis.do_tin_cay),
-        time: new Date().toLocaleTimeString("vi-VN", { hour12: false })
-      }
-    });
-  } catch {
-    res.status(500).json({ error: "API error" });
-  }
+  res.json({ ban: ban.ban, cau: { ...a, du_doan: a.du_doan_tiep } });
 });
 
-// ================== API AUTO (KHÔNG RESET) ==================
-app.get("/api/ban/auto", async (req, res) => {
-  try {
-    const resApi = await axios.get("https://bcrvip.onrender.com/api/ban/all");
-    const data = resApi.data.data || resApi.data;
+/* ===== AUTO BÀN ĐẸP (KHÔNG RESET) ===== */
+app.get("/api/ban/auto", async (_, res) => {
+  const { data } = await axios.get(SOURCE_API);
 
-    if (CURRENT_BAN) {
-      const old = data.find(b => b.ban === CURRENT_BAN);
-      if (old) {
-        const a = analyzeKetQua(old.ket_qua, old.du_doan);
-        if (a && a.do_tin_cay >= 70) {
-          return res.json({
-            ban: old.ban,
-            cau: {
-              Cầu: old.cau,
-              ket_qua: old.ket_qua,
-              du_doan: a.du_doan_tiep,
-              do_tin_cay: a.do_tin_cay + "%",
-              muc_do_tin_cay: getMucDoTinCay(a.do_tin_cay),
-              ghi_chu: "Giữ bàn"
-            }
-          });
-        }
-      }
-      CURRENT_BAN = null;
-    }
-
-    let best = null;
-    for (let i = 1; i <= 16; i++) {
-      const id = `C${String(i).padStart(2, "0")}`;
-      const b = data.find(x => x.ban === id);
-      if (!b) continue;
-
+  // Giữ bàn cũ
+  if (CURRENT_BAN) {
+    const b = data.find(x => x.ban === CURRENT_BAN);
+    if (b) {
       const a = analyzeKetQua(b.ket_qua, b.du_doan);
-      if (a && (!best || a.do_tin_cay > best.analysis.do_tin_cay)) {
-        best = { b, analysis: a };
+      if (a && a.do_tin_cay >= 70) {
+        return res.json({ ban: b.ban, cau: a, ghi_chu: "Giữ bàn cũ" });
       }
     }
-
-    if (!best) return res.json({ status: "NO_BAN_DEP" });
-
-    CURRENT_BAN = best.b.ban;
-    res.json({
-      ban: best.b.ban,
-      cau: {
-        Cầu: best.b.cau,
-        ket_qua: best.b.ket_qua,
-        du_doan: best.analysis.du_doan_tiep,
-        do_tin_cay: best.analysis.do_tin_cay + "%",
-        muc_do_tin_cay: getMucDoTinCay(best.analysis.do_tin_cay),
-        ghi_chu: "Chọn bàn mới"
-      }
-    });
-
-  } catch {
-    res.status(500).json({ error: "AUTO error" });
   }
+
+  // Tìm bàn mới
+  let best = null;
+  for (let i = 1; i <= 16; i++) {
+    const id = `C${String(i).padStart(2, "0")}`;
+    const b = data.find(x => x.ban === id);
+    if (!b) continue;
+    const a = analyzeKetQua(b.ket_qua, b.du_doan);
+    if (a && (!best || a.do_tin_cay > best.a.do_tin_cay)) {
+      best = { b, a };
+    }
+  }
+
+  if (!best) return res.json({ status: "NO_BAN_DEP" });
+
+  CURRENT_BAN = best.b.ban;
+  res.json({ ban: best.b.ban, cau: best.a, ghi_chu: "Chọn bàn mới" });
 });
 
-// ================== API ALL BÀN ==================
-app.get("/api/ban/all", async (req, res) => {
-  try {
-    const resApi = await axios.get("https://bcrapj-sgpl.onrender.com/sexy/all");
-    const data = resApi.data.data || resApi.data;
+/* ===== ALL ===== */
+app.get("/api/ban/all", async (_, res) => {
+  const { data } = await axios.get(SOURCE_API);
+  const out = [];
 
-    const result = [];
-
-    for (let i = 1; i <= 16; i++) {
-      const id = `C${String(i).padStart(2, "0")}`;
-      const b = data.find(x => x.ban === id);
-      if (!b) continue;
-
-      const a = analyzeKetQua(b.ket_qua, b.du_doan);
-      result.push(
-        a
-          ? {
-              ban: id,
-              du_doan: a.du_doan_tiep,
-              do_tin_cay: a.do_tin_cay + "%",
-              muc_do_tin_cay: getMucDoTinCay(a.do_tin_cay)
-            }
-          : { ban: id, trang_thai: "Không có cầu" }
-      );
-    }
-
-    res.json({ total: result.length, data: result });
-  } catch {
-    res.status(500).json({ error: "ALL error" });
+  for (let i = 1; i <= 16; i++) {
+    const id = `C${String(i).padStart(2, "0")}`;
+    const b = data.find(x => x.ban === id);
+    if (!b) continue;
+    const a = analyzeKetQua(b.ket_qua, b.du_doan);
+    out.push(a ? { ban: id, du_doan: a.du_doan_tiep, tin_cay: a.do_tin_cay + "%" }
+               : { ban: id, trang_thai: "Không cầu" });
   }
+  res.json({ total: out.length, data: out });
 });
 
 /* ================== START ================== */
-app.listen(PORT, () => {
-  console.log("API running on port", PORT);
-});
+app.listen(PORT, () => console.log("RUNNING:", PORT));
